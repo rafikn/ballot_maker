@@ -8,6 +8,113 @@ import os
 import glob
 
 import collections
+from sets import Set
+
+keys = Set()
+for i in range(1, 53):
+	keys.add(i)
+
+
+class Form:
+	file = ''
+	candidates = []
+	error = False
+	duplicates = Set()
+	missing = Set()
+
+	def __init__(self, file, candidates):
+		self.file = file
+		self.candidates = candidates
+
+	def load(self):
+		""" 
+			Parse Voting from to BLT 
+		"""
+		with open(self.file, 'r') as csvfile:
+			lines = csv.reader(csvfile)
+			index = 0 
+			error = False
+			""" 
+				lines are formatted as the following:
+				Candidate1,Rank1,\s,Candidate2,Rank2
+			"""
+			votes = {}
+			for line in lines:
+
+				if len(line[0]) == 0 or line[0] == 'Candidate':
+					continue
+
+				candidate_1 = line[0]
+				vote_1 = line[1]
+				candidate_2 = line[3]
+				vote_2 = line[4]
+
+				if (len(vote_1) > 0):
+					if int(vote_1) in votes.keys():
+						if error == False:
+							error = True
+							print '[ERROR]', self.file
+						print '[ERROR] duplicated key', int(vote_1)
+
+					if int(vote_1) > 52:
+						if error == False:
+							error = True
+							print '[ERROR]', self.file
+						print '[ERROR] rank out of bounds', vote_1
+
+					votes[int(vote_1)] = candidate_1
+
+				if (len(vote_2) > 0):
+					if int(vote_2) in votes.keys():
+						if error == False:
+							error = True
+							print '[ERROR]', self.file
+						print '[ERROR] duplicated key', int(vote_2)
+					if int(vote_2) > 52:
+						if error == False:
+							error = True
+							print '[ERROR]', self.file
+						print '[ERROR] rank out of bounds', vote_2
+
+					votes[int(vote_2)] = candidate_2
+
+			diff = list(keys.symmetric_difference(votes.keys()))
+			if (len(diff) > 0):
+				if len(diff) == 1 and diff[0] < 52:
+					print '[ERROR] missing rank %d' % diff[0]
+				elif len(diff) == 1 and diff[0] == 52:
+					print '[WARN] stopped at rank:', diff[0] # 52
+				elif len(diff) > 1:
+					skipped = all(diff[i+1] - diff[i] == 1 for i in xrange(len(diff)-1))
+					if skipped:
+						if diff[0] <= 52:
+							print '[WARN] stopped at rank:', diff[0]
+					else:
+						for x in diff:
+							if x < 52:
+								print '[ERROR] missing rank %d' % x
+
+			# 	else:
+			# 		print '[ERROR] missing ranks:', diff
+
+
+			orderedVotes = collections.OrderedDict(sorted(votes.items()))
+
+			BLT = '1 '
+			for (vote, candidate) in orderedVotes.items():
+				try:
+					BLT += str(self.candidates[candidate]) + ' '
+				except KeyError, err:
+					if error == False:
+						error = True
+						print '[ERROR]', self.file
+						print '[ERROR]: Cannot find index for candidate', str(err)
+					
+			BLT += '0'
+			if error == False:
+				print '[INFO]', self.file, 'OK'
+			# 	print BLT
+			print ''
 
 class BallotMaker:
 	""" Transoform a list ranking into a BLT format """
@@ -32,46 +139,7 @@ class BallotMaker:
 
 			print "Loaded", index, "candidates"
 
-
-	def loadForm(self, form):
-		""" 
-			Parse Voting from to BLT 
-		"""
-		with open(form, 'r') as csvfile:
-			lines = csv.reader(csvfile)
-			index = 0 
-
-			""" 
-				lines are formatted as the following:
-				Candidate1, Rank1, \s, Candidate2, Rank2
-			"""
-			votes = {}
-			for line in lines:
-
-				if len(line[0]) == 0 or line[0] == 'Candidate':
-					continue
-
-				candidate_1 = line[0]
-				vote_1 = line[1]
-				candidate_2 = line[3]
-				vote_2 = line[4]
-
-				if (len(vote_1) > 0):
-					votes[int(vote_1)] = candidate_1
-				if (len(vote_2) > 0):
-					votes[int(vote_2)] = candidate_2
-
-			orderedVotes = collections.OrderedDict(sorted(votes.items()))
-
-			BLT = '1 '
-			for (vote, candidate) in orderedVotes.items():
-				try:
-					BLT += str(self.candidates[candidate]) + ' '
-				except KeyError, err:
-					print '[WARN]: Cannot find index for candidate', str(err)
-					
-			BLT += '0'
-			print BLT
+		
 
 	def loadForms(self, path):
 		""" 
@@ -82,8 +150,10 @@ class BallotMaker:
 			print "No forms found in folder:", path
 			sys.exit(1)
 		else:
-			for form in files:
-				self.loadForm(form)
+			for file in sorted(files):
+				form = Form(file, self.candidates)
+				form.load()
+
 
 if __name__ == '__main__':
 	usage = """
