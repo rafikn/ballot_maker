@@ -19,19 +19,18 @@ for i in range(1, NUM_CANDIDATES + 1):
 
 
 class Form:
-	file = ''
-	candidates = []
-	error = False
-	test = False
-	duplicates = Set()
-	missing = Set()
-	BLT = list()
 
-	def __init__(self, file, candidates, test):
+	def __init__(self, file, candidates, stage, test):
 		self.file = file
 		self.candidates = candidates
+		self.votes = {}
+		self.duplicates = Set()
+		self.missing = Set()
 		self.test = test
-
+		self.stage = stage
+		self.ranked = 0
+		self.error = False
+		self.BLT = list()
 
 	def toBLT(self):
 		"""
@@ -67,32 +66,29 @@ class Form:
 		if (self.test):
 			print msg
 
-	def printDiffErrors(self, diff):
-		if (test and len(diff) > 0):
-			if self.error == False:
-				self.error = True
+	def checkDiff(self, diff):
+		if (len(diff) > 0):
+			#if self.error == False:
+			#	self.error = True
 
-			if len(diff) == 1 and diff[0] < NUM_CANDIDATES:
-				print '[ERROR] missing rank %d' % diff[0]
-			elif len(diff) == 1 and diff[0] == NUM_CANDIDATES:
-				print '[WARN] missing last rank:', diff[0] # 52
+			if len(diff) == 1 and diff[0] <= NUM_CANDIDATES:
+				self.missing.add(diff[0])
 			elif len(diff) > 1:
 				skipped = all(diff[i+1] - diff[i] == 1 for i in xrange(len(diff)-1))
 				if skipped:
 					if diff[0] < NUM_CANDIDATES:
-						print '[WARN] stopped at rank:', diff[0]
+						""#print '[WARN] stopped at rank:', diff[0]
 				else:
 					for x in diff:
-						if x < NUM_CANDIDATES:
-							print '[ERROR] missing rank %d' % x
-			else:
-				print '[ERROR] missing ranks:', diff
+						if x <= NUM_CANDIDATES:
+							self.missing.add(x)
 
 	def load(self):
+		self.duplicates = Set()
 		""" 
 			Parse Voting from to BLT 
 		"""
-		with open(self.file, 'r') as csvfile:
+		with open(self.file, 'rU') as csvfile:
 			lines = csv.reader(csvfile)
 			index = 0 
 
@@ -100,39 +96,41 @@ class Form:
 				lines are formatted as the following:
 				Candidate1,Rank1,\s,Candidate2,Rank2
 			"""
-			votes = {}
 			for line in lines:
-				if len(line[0]) == 0 or line[0] == 'Candidate':
+				if len(line[0]) == 0 or line[0].lstrip() == 'Candidate':
 					continue
 
-				candidate_1 = line[0];
-				vote_1 = line[1];
-				candidate_2 = line[3];
-				vote_2 = line[4];
+				candidate_1 = line[0].lstrip();
+				vote_1 = line[1].lstrip();
+				candidate_2 = line[3].lstrip();
+				vote_2 = line[4].lstrip();
+
 				if (len(vote_1) > 0):
-					if int(vote_1) in votes.keys():
-						self.printDuplicated(vote_1)
-						
+
+					if int(vote_1) in self.votes.keys():
+						self.duplicates.add(int(vote_1))
+
 					if int(vote_1) > NUM_CANDIDATES:
 						self.printOutOfBound(vote_1)
 
-					votes[int(vote_1)] = candidate_1
+					self.votes[int(vote_1)] = candidate_1
+					self.ranked += 1
 
 				if (len(vote_2) > 0):
-					if int(vote_2) in votes.keys():
-						self.printDuplicated(vote_1)
+					if int(vote_2) in self.votes.keys():
+						self.duplicates.add(int(vote_2))
 
 					if int(vote_2) > NUM_CANDIDATES:
 						self.printOutOfBound(vote_2)
 
-
-					votes[int(vote_2)] = candidate_2
-
-			diff = list(keys.symmetric_difference(votes.keys()))
-			self.printDiffErrors(diff)
+					self.votes[int(vote_2)] = candidate_2
+					self.ranked += 1
 
 
-			orderedVotes = collections.OrderedDict(sorted(votes.items()))
+			diff = list(keys.symmetric_difference(self.votes.keys()))
+			self.checkDiff(diff)
+
+			orderedVotes = collections.OrderedDict(sorted(self.votes.items()))
 
 			self.BLT = list()
 			for (vote, candidate) in orderedVotes.items():
@@ -149,13 +147,16 @@ class BallotMaker:
 	candidates = {}
 	inverted = {}
 	ranking = {}
+	stage = "INIT"
 
 	forms = list()
 
-	def __init__(self, candidateFile):
+	def __init__(self, candidateFile, stage):
 		""" 
 			Load candidates from file into a dict 
 		"""
+		self.stage = stage
+
 		with open(candidateFile, 'r') as csvfile:
 			candidateList = csv.reader(csvfile)
 			index = 0 
@@ -176,7 +177,7 @@ class BallotMaker:
 		"""
 		self.forms = []
 
-		files = glob.glob(path + "/*form.csv")
+		files = glob.glob(path + "/*.csv")
 		if (len(files) == 0):
 			print "No forms found in folder:", path
 			sys.exit(1)
@@ -186,21 +187,30 @@ class BallotMaker:
 
 			for file in sorted(files):
 				if (test):
-					print "%s" % file
+					""
+					#print "%s" % file
 
-				form = Form(file, self.candidates, test)
+				#print file
+
+				form = Form(file, self.candidates, self.stage, test)
 				form.load()
 
-				if (test):
-					if (form.error):
-						print ''
-					else:
-						print "OK\n"
+				truncated = self.truncate(form)
 
-				if (invert == False):
+				if (invert == False and not test and form.ranked >= 25):
+					""
 					print form.toBLT()
 
 				self.forms.append(form)
+
+	def truncate(self, form):
+		orderedDuplicates= sorted(form.duplicates)
+		orderedMissing = sorted(form.missing)
+
+		if (len(orderedDuplicates) > 0):
+			firstDuplicate = orderedDuplicates[0]
+			form.BLT = form.BLT[:(firstDuplicate-1)]
+
 
 
 	def invert(self):
@@ -227,10 +237,15 @@ if __name__ == '__main__':
 	usage = """
 		Usage:
 
-		makeBallot.py [-p path] [-c candidates] [-t] [-r]
+		makeBallot.py [-s stage] [-l list] [-p path] [-c candidates] [-t] [-r]
 
 		-p: path to folder containing voting forms
 		-c: file containing candidate names
+		-s: stage
+			INIT 	(default) initial scaning of the ballots, fix missing ranks, truncate at first duplicate
+			FIX 	fix duplicates (requires the list option -l)
+		-l: path to a list ranking to use for breaking dupicate ties
+
 		-t: test voting forms for errors
 		-i: invert votes from ballots to candidates
 
@@ -240,13 +255,13 @@ if __name__ == '__main__':
 
 	# Parse the command line.
 	try:
-		(opts, args) = getopt.getopt(sys.argv[1:], "p:c:ti")
+		(opts, args) = getopt.getopt(sys.argv[1:], "p:c:s:l:ti")
 	except getopt.GetoptError, err:
 		print str(err) # will #print something like "option -a not recognized"
 		print usage
 		sys.exit(1)
 
-	if len(opts) > 4 or len(opts) < 2:
+	if len(opts) > 3 or len(opts) < 2:
 		if len(opts) < 2:
 			print "Specify forms folder and candidates file"
 			print usage
@@ -260,6 +275,8 @@ if __name__ == '__main__':
 	candidateFile = ''
 	test = False
 	invert = False
+
+	stage = "INIT"
 
 	for o, a in opts:
 		if o == "-p":
@@ -291,7 +308,7 @@ if __name__ == '__main__':
 		print usage
 		sys.exit(1)
 
-	maker = BallotMaker(candidateFile)
+	maker = BallotMaker(candidateFile, stage)
 
 	#print maker.candidates
 	maker.loadForms(formsPath, test)
